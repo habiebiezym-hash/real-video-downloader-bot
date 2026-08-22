@@ -1,2 +1,0 @@
-# Netscape HTTP Cookie File
-.youtube.com	TRUE	/	FALSE	0	CONSENT	YES+
