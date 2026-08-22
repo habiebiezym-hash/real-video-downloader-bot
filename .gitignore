@@ -1,6 +1,14 @@
 .env
+cookies.txt
+bot_database.db
 __pycache__/
+*.pyc
+venv/
+.venv/
+dl_*
 *.mp3
 *.mp4
-dl_*
-cookies.txt
+*.webm
+*.m4a
+*.jpg
+*.webp
