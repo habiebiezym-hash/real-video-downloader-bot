@@ -15,6 +15,7 @@ from telegram.ext import (
 import yt_dlp
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import subprocess
 
 load_dotenv()
 
@@ -24,13 +25,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID") # Admin Telegram ID
+ADMIN_ID = os.getenv("ADMIN_ID")
 COOKIE_FILE = "cookies.txt"
 ITEMS_PER_PAGE = 10
 
-# Anti-Spam / Rate Limiting Tracker
+# Check if ffmpeg is installed
+def check_ffmpeg():
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        return True
+    except:
+        return False
+
+if not check_ffmpeg():
+    logger.warning("⚠️ FFmpeg not found! Audio/Video merging may fail.")
+
 USER_COOLDOWNS = {}
-USERS_DB = set() # Store unique user IDs
+USERS_DB = set()
 
 def check_rate_limit(user_id: int, cooldown_seconds: int = 3) -> bool:
     current_time = time.time()
@@ -40,7 +51,6 @@ def check_rate_limit(user_id: int, cooldown_seconds: int = 3) -> bool:
     USER_COOLDOWNS[user_id] = current_time
     return True
 
-# Simple Health Check Server for Railway Keep-Alive
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -52,21 +62,24 @@ def run_health_server():
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
-# Start background thread for Railway Health check
 threading.Thread(target=run_health_server, daemon=True).start()
 
 def get_main_menu():
     keyboard = [
-        [InlineKeyboardButton("🎬 YouTube", callback_data="menu_yt"), InlineKeyboardButton("🎵 TikTok", callback_data="menu_tt")],
-        [InlineKeyboardButton("📘 Facebook", callback_data="menu_fb"), InlineKeyboardButton("🔍 Music Search", callback_data="menu_search")]
+        [InlineKeyboardButton("🎬 YouTube", callback_data="menu_yt"), 
+         InlineKeyboardButton("🎵 TikTok", callback_data="menu_tt")],
+        [InlineKeyboardButton("📘 Facebook", callback_data="menu_fb"), 
+         InlineKeyboardButton("🔍 Music Search", callback_data="menu_search")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def get_quality_menu():
     keyboard = [
         [InlineKeyboardButton("🎵 MP3 (Audio)", callback_data="quality_mp3")],
-        [InlineKeyboardButton("360p", callback_data="quality_360"), InlineKeyboardButton("480p", callback_data="quality_480")],
-        [InlineKeyboardButton("720p", callback_data="quality_720"), InlineKeyboardButton("1080p", callback_data="quality_1080")]
+        [InlineKeyboardButton("360p", callback_data="quality_360"), 
+         InlineKeyboardButton("480p", callback_data="quality_480")],
+        [InlineKeyboardButton("720p", callback_data="quality_720"), 
+         InlineKeyboardButton("1080p", callback_data="quality_1080")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -103,19 +116,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USERS_DB.add(user_id)
     
     welcome_text = (
+        "🤖 **MAMA Video Downloader**\n\n"
         "မမရေ💖🍓 မမကြိုက်တဲ့ Videoလေးတွေ Download ရပြီနော်။\n"
-        "Tiktok, Facebookနဲ့ YouTube Music Search ရပါပြီ။\n"
-        "မောင်ကြိုးစားပြီးပြင်ပေးထားတယ်။ချစ်တယ်နော်🍓💖 အာဘွားမွကျိ😘🍓"
+        "လောလောဆယ်တော့ YouTube, TikTok, Facebook နဲ့ YouTube Music Search ရပါပြီ။\n"
+        "အောက်က Menu ထဲက ရွေးပြီး Link ပို့ပေးပါ။"
     )
     await update.message.reply_text(
         welcome_text,
-        reply_markup=get_main_menu()
+        reply_markup=get_main_menu(),
+        parse_mode="Markdown"
     )
 
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if ADMIN_ID and user_id == str(ADMIN_ID):
-        await update.message.reply_text(f"📊 **Bot Status**\n\nTotal Users: {len(USERS_DB)}")
+        await update.message.reply_text(f"📊 **Bot Status**\n\nTotal Users: {len(USERS_DB)}", parse_mode="Markdown")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -163,7 +178,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 0 <= idx < len(results):
             selected = results[idx]
             url = f"https://www.youtube.com/watch?v={selected['id']}"
-            await query.edit_message_text(f"🎵 **{selected['title']}** ကို ဒေါင်းလုဒ်ဆွဲနေပါသည်...")
+            await query.edit_message_text(f"🎵 **{selected['title']}** ကို ဒေါင်းလုဒ်ဆွဲနေပါသည်...", parse_mode="Markdown")
             asyncio.create_task(process_download(query, context, url, "mp3"))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -199,7 +214,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.edit_text("👇 ဒေါင်းလုဒ်ဆွဲလိုသည့် သီချင်းကို ရွေးပါ:", reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Search error: {e}")
-            await msg.edit_text("❌ ရှာဖွေရာတွင် အမှားအယွင်း ရှိနေပါသည်။")
+            await msg.edit_text(f"❌ ရှာဖွေရာတွင် အမှားအယွင်း ရှိနေပါသည်။\nError: {str(e)[:100]}")
         return
 
     if text.startswith("http://") or text.startswith("https://"):
@@ -213,58 +228,86 @@ async def process_download(query, context, url, quality):
     loop = asyncio.get_running_loop()
     output_filename = f"dl_{query.message.message_id}"
 
+    # Add cookies and user agent to avoid YouTube blocking
+    base_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+    }
+    
+    if os.path.exists(COOKIE_FILE):
+        base_opts['cookiefile'] = COOKIE_FILE
+
     if quality == "mp3":
         ydl_opts = {
+            **base_opts,
             'format': 'bestaudio/best',
             'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
             'outtmpl': f'{output_filename}.%(ext)s',
-            'quiet': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
         }
     else:
         ydl_opts = {
+            **base_opts,
             'format': f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best',
             'outtmpl': f'{output_filename}.%(ext)s',
             'merge_output_format': 'mp4',
-            'quiet': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
         }
-
-    if os.path.exists(COOKIE_FILE):
-        ydl_opts['cookiefile'] = COOKIE_FILE
 
     try:
         def download():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 return ydl.extract_info(url, download=True)
 
-        info = await loop.run_in_executor(None, download)
-        file_path = f"{output_filename}.mp3" if quality == "mp3" else f"{output_filename}.mp4"
+        # Send "processing" message
+        status_msg = await context.bot.send_message(chat_id=chat_id, text="⏳ Downloading and processing...")
         
-        if not os.path.exists(file_path):
-            for f in os.listdir('.'):
-                if f.startswith(output_filename):
-                    file_path = f
-                    break
+        info = await loop.run_in_executor(None, download)
+        
+        # Find the downloaded file
+        file_path = None
+        for f in os.listdir('.'):
+            if f.startswith(output_filename):
+                file_path = f
+                break
+
+        if not file_path:
+            await context.bot.send_message(chat_id=chat_id, text="❌ ဖိုင်ကို ရှာမတွေ့ပါ။")
+            return
 
         file_size = os.path.getsize(file_path) / (1024 * 1024)
 
         if file_size > 50:
             await context.bot.send_message(chat_id=chat_id, text="❌ ဖိုင်ဆိုဒ် 50MB ထက်ကြီးသဖြင့် Telegram တွင် တင်၍ မရပါ။")
         else:
-            await context.bot.send_message(chat_id=chat_id, text="📤 Telegram သို့ တင်ပို့နေပါသည်...")
+            await status_msg.delete()
+            await context.bot.send_message(chat_id=chat_id, text="📤 Uploading to Telegram...")
+            
             with open(file_path, 'rb') as file:
+                title = info.get('title', 'Video')
                 if quality == "mp3":
-                    await context.bot.send_audio(chat_id=chat_id, audio=file, title=info.get('title', 'Audio'))
+                    await context.bot.send_audio(
+                        chat_id=chat_id, 
+                        audio=file, 
+                        title=title,
+                        performer=info.get('uploader', 'Unknown')
+                    )
                 else:
-                    await context.bot.send_video(chat_id=chat_id, video=file, caption=info.get('title', 'Video'))
+                    await context.bot.send_video(
+                        chat_id=chat_id, 
+                        video=file, 
+                        caption=f"🎬 {title[:100]}",
+                        supports_streaming=True
+                    )
 
     except Exception as e:
         logger.error(f"Download Error: {e}")
-        await context.bot.send_message(chat_id=chat_id, text="❌ ဒေါင်းလုဒ်ဆွဲရာတွင် အမှားအယွင်း ဖြစ်ပေါ်ခဲ့ပါသည်။")
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text=f"❌ ဒေါင်းလုဒ်ဆွဲရာတွင် အမှားအယွင်း ဖြစ်ပေါ်ခဲ့ပါသည်။\n\nError: {str(e)[:150]}"
+        )
     finally:
+        # Cleanup
         for f in os.listdir('.'):
             if f.startswith(output_filename):
                 try:
@@ -276,6 +319,13 @@ def main():
     if not TOKEN:
         logger.error("BOT_TOKEN မရှိသေးပါ။ Environment Variable ကို စစ်ဆေးပါ။")
         return
+    
+    # Check for ffmpeg
+    if not check_ffmpeg():
+        logger.warning("⚠️ FFmpeg not found! Install it for audio/video processing.")
+        logger.warning("On Ubuntu/Debian: sudo apt-get install ffmpeg")
+        logger.warning("On Windows: Download from ffmpeg.org and add to PATH")
+    
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", admin_stats))
